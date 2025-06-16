@@ -1,0 +1,8 @@
+{
+  "name": "AngoTech Store",
+  "description": "Your one-stop e-commerce platform for the latest electronic gadgets in Angola. Experience convenient shopping with trusted local payment options.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "prompt": ""
+}

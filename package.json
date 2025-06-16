@@ -1,0 +1,24 @@
+{
+  "name": "angotech-store",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-router": "6.24.1",
+    "react-router-dom": "6.24.1",
+    "@headlessui/react": "2.1.2",
+    "@kinde-oss/kinde-auth-react": "^5.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "typescript": "~5.7.2",
+    "vite": "^6.2.0"
+  }
+}

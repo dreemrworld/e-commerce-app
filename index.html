@@ -1,0 +1,56 @@
+
+<!DOCTYPE html>
+<html lang="pt">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" /> <!-- Placeholder icon -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AngoTech Store</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              primary: '#1865f2', // Blue (User Specified)
+              secondary: '#79A6DC', // Lighter Blue
+              accent: '#F5A623',   // Orange
+              background: '#F8F9FA', // Very Light Gray
+              surface: '#FFFFFF',   // White
+              textPrimary: '#212529', // Near Black
+              textSecondary: '#6C757D', // Dark Gray
+            },
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'], // Example modern font
+            },
+          },
+        },
+      }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0?dev",
+    "react/": "https://esm.sh/react@18.2.0/?dev",
+    "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime?dev",
+    "react/jsx-dev-runtime": "https://esm.sh/react@18.2.0/jsx-dev-runtime?dev",
+    "react-dom": "https://esm.sh/react-dom@18.2.0?dev",
+    "react-dom/": "https://esm.sh/react-dom@18.2.0/?dev",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client?dev",
+    "react-router": "https://esm.sh/react-router@6.24.1?dev&deps=react@18.2.0",
+    "react-router-dom": "https://esm.sh/react-router-dom@6.24.1?dev&deps=react@18.2.0",
+    "@headlessui/react": "https://esm.sh/@headlessui/react@2.1.2?dev&deps=react@18.2.0",
+    "@kinde-oss/kinde-auth-react": "https://esm.sh/@kinde-oss/kinde-auth-react@^5.4.1"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-background font-sans">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
