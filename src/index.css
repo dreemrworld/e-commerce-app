@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* You can add any additional global styles or custom CSS here if needed */
+body {
+  /* Example: ensure textPrimary is the default text color if not covered by Tailwind base */
+  color: theme('colors.textPrimary');
+}
