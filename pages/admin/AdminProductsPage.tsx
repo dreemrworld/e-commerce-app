@@ -1,20 +1,26 @@
 import React, { useState } from 'react';
-import { useProductsContext } from '../../context/ProductsContext';
+import { useProducts } from '../../hooks/useProducts'; // Updated to useProducts hook
 import { Product } from '../../types';
 import { CURRENCY_SYMBOL } from '../../constants';
 import Button from '../../components/Button';
 import Modal from '../../components/Modal';
 import ProductForm from '../../components/admin/ProductForm';
 import LoadingSpinner from '../../components/LoadingSpinner';
+import { useNotification } from '../../context/NotificationContext';
+
+// Matches the ProductInput type in ProductsContext
+type ProductFormData = Omit<Product, 'id' | 'created_at' | 'reviews' | 'imageUrls'> & { image_url?: string };
+
 
 const AdminProductsPage: React.FC = () => {
-  const { products, isLoading, error, addProduct, updateProduct, deleteProduct } = useProductsContext();
+  const { products, isLoading, error, addProduct, updateProduct, deleteProduct, fetchProducts } = useProducts();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const { showNotification } = useNotification();
 
 
   const openModalForNew = () => {
@@ -32,18 +38,31 @@ const AdminProductsPage: React.FC = () => {
     setEditingProduct(null);
   };
 
-  const handleFormSubmit = async (productData: Omit<Product, 'id'> | Product) => {
+  const handleFormSubmit = async (formData: ProductFormData) => {
     setIsSaving(true);
     try {
-      if ('id' in productData && productData.id) { 
-        await updateProduct(productData.id, productData);
-      } else { 
-        await addProduct(productData as Omit<Product, 'id'>);
+      let operationError;
+      if (editingProduct && editingProduct.id) {
+        // When updating, ensure only fields present in ProductInput are passed
+        const { name, description, price, category, stock_quantity, image_url } = formData;
+        const updateData: Partial<ProductFormData> = { name, description, price, category, stock_quantity, image_url };
+
+        const result = await updateProduct(editingProduct.id, updateData);
+        operationError = result.error;
+      } else {
+        const result = await addProduct(formData);
+        operationError = result.error;
       }
-      closeModal();
-    } catch (e) {
+
+      if (!operationError) {
+        closeModal();
+        // fetchProducts(); // Re-fetch to ensure data consistency (optional, context might update optimistically)
+      } else {
+         showNotification(operationError.message || 'Failed to save product', 'error');
+      }
+    } catch (e: any) {
       console.error("Failed to save product", e);
-      // Error handling, maybe show a toast
+      showNotification(e.message || 'An unexpected error occurred.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -58,13 +77,18 @@ const AdminProductsPage: React.FC = () => {
     if (productToDelete) {
       setIsSaving(true); 
       try {
-        await deleteProduct(productToDelete.id);
-      } catch(e) {
+        const { error: deleteError } = await deleteProduct(productToDelete.id);
+        if (deleteError) {
+          showNotification(deleteError.message || 'Failed to delete product', 'error');
+        }
+      } catch(e: any) {
         console.error("Failed to delete product", e);
+        showNotification(e.message || 'An unexpected error occurred.', 'error');
       } finally {
         setIsSaving(false);
         setShowDeleteConfirm(false);
         setProductToDelete(null);
+        // fetchProducts(); // Re-fetch or rely on optimistic update from context
       }
     }
   };
@@ -74,7 +98,7 @@ const AdminProductsPage: React.FC = () => {
     return <div className="flex justify-center items-center h-64"><LoadingSpinner /></div>;
   }
 
-  if (error) {
+  if (error && products.length === 0) { // Only show full page error if no products are displayed
     return <p className="text-red-500 text-center py-10">Erro ao carregar produtos: {error}</p>;
   }
 
@@ -86,6 +110,7 @@ const AdminProductsPage: React.FC = () => {
           Adicionar Novo Produto
         </Button>
       </div>
+      {error && <p className="text-red-500 text-center pb-4">Atenção: {error}. Alguns dados podem estar desatualizados.</p>}
 
       {products.length === 0 && !isLoading ? (
         <p className="text-textSecondary text-center">Nenhum produto encontrado.</p>
@@ -104,13 +129,14 @@ const AdminProductsPage: React.FC = () => {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {products.map((product) => {
-                const imageUrl = product.imageUrls && product.imageUrls.length > 0 ? product.imageUrls[0] : undefined;
+                // Use product.image_url from Supabase, or the first from imageUrls as a fallback
+                const displayImageUrl = product.image_url || (product.imageUrls && product.imageUrls.length > 0 ? product.imageUrls[0] : undefined);
                 return (
                   <tr key={product.id}>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {imageUrl ? (
+                      {displayImageUrl ? (
                         <img 
-                            src={imageUrl} 
+                            src={displayImageUrl}
                             alt={product.name} 
                             className="w-12 h-12 object-cover rounded" 
                         />
@@ -130,13 +156,13 @@ const AdminProductsPage: React.FC = () => {
                       <div className="text-sm text-textSecondary">{product.price.toLocaleString('pt-AO', { style: 'currency', currency: CURRENCY_SYMBOL })}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${product.stock > 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                        {product.stock}
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${product.stock_quantity > 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                        {product.stock_quantity}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                       <Button variant="ghost" size="sm" onClick={() => openModalForEdit(product)}>Editar</Button>
-                      <Button variant="danger" size="sm" onClick={() => handleDeleteClick(product)}>Eliminar</Button>
+                      <Button variant="danger" size="sm" onClick={() => handleDeleteClick(product)} disabled={isSaving}>Eliminar</Button>
                     </td>
                   </tr>
                 );

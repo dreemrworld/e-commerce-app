@@ -1,46 +1,129 @@
 import React, { useEffect, useState } from 'react';
 import * as ReactRouterDOM from 'react-router-dom';
-import { Order } from '../types';
-import { CURRENCY_SYMBOL, LOCAL_STORAGE_ORDERS_KEY, PAYMENT_METHODS } from '../constants';
+import { Order, CartItem as OrderItemType } from '../types'; // Renamed CartItem to OrderItemType for clarity here
+import { CURRENCY_SYMBOL } from '../constants';
 import Button from '../components/Button';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabaseClient';
+import { useNotification } from '../context/NotificationContext';
+
+// Define a type for orders fetched from Supabase, which includes 'order_items'
+interface SupabaseOrder extends Omit<Order, 'items' | 'orderDate' | 'paymentMethod' | 'userId'> {
+  user_id: string;
+  created_at: string; // Supabase timestamp
+  payment_method_id: string; // Matches table schema
+  order_items: Array<{
+    id: string;
+    product_id: string;
+    quantity: number;
+    price_at_purchase: number;
+    // We'll need to fetch product details separately or join if possible
+    // For now, assume we might need to map product details from ProductsContext or fetch them
+    products?: { name: string; image_url?: string; category: string }; // Optional product details
+  }>;
+}
+
 
 const OrdersPage: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const navigate = ReactRouterDOM.useNavigate();
+  const { user, session } = useAuth();
+  const { showNotification } = useNotification();
 
   useEffect(() => {
-    setIsLoading(true);
-    try {
-      const storedOrdersJSON = localStorage.getItem(LOCAL_STORAGE_ORDERS_KEY);
-      if (storedOrdersJSON) {
-        const parsedOrders: Order[] = JSON.parse(storedOrdersJSON);
-        // Sort by most recent first
-        parsedOrders.sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime());
-        setOrders(parsedOrders);
+    const fetchOrders = async () => {
+      if (!user || !session) {
+        showNotification('Por favor, faça login para ver os seus pedidos.', 'info');
+        navigate('/login', { state: { from: { pathname: '/orders' } } });
+        setIsLoading(false);
+        return;
       }
-    } catch (error) {
-      console.error("Error loading orders from localStorage:", error);
-      // Potentially show a toast notification
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+
+      setIsLoading(true);
+      try {
+        // Fetch orders and their items.
+        // Note: This fetches all product details for all items in all orders.
+        // For large numbers of orders/items, consider pagination or more optimized queries.
+        const { data, error } = await supabase
+          .from('orders')
+          .select(`
+            id,
+            created_at,
+            total_amount,
+            status,
+            shipping_address,
+            payment_method_id,
+            order_items (
+              product_id,
+              quantity,
+              price_at_purchase,
+              products ( name, image_url, category )
+            )
+          `)
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        if (data) {
+          const formattedOrders: Order[] = data.map((order: SupabaseOrder) => ({
+            id: order.id,
+            userId: order.user_id,
+            orderDate: order.created_at, // Use created_at from Supabase
+            totalAmount: order.total_amount,
+            status: order.status as Order['status'], // Cast status
+            shippingAddress: order.shipping_address,
+            paymentMethod: order.payment_method_id, // Store the ID or name
+            items: order.order_items.map(item => ({
+              // Map Supabase order_items to CartItem structure
+              id: item.product_id, // Use product_id as the item's main id in this context
+              name: item.products?.name || 'Produto Desconhecido',
+              description: '', // Not directly available here, could be fetched if needed
+              price: item.price_at_purchase,
+              image_url: item.products?.image_url, // Use image_url from joined products
+              imageUrls: item.products?.image_url ? [item.products.image_url] : [],
+              category: item.products?.category || 'N/A',
+              stock_quantity: 0, // Not relevant for past order item display
+              quantity: item.quantity,
+            })),
+          }));
+          setOrders(formattedOrders);
+        }
+      } catch (err: any) {
+        console.error("Error loading orders from Supabase:", err);
+        showNotification(err.message || "Erro ao carregar pedidos.", "error");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchOrders();
+  }, [user, session, navigate, showNotification]);
 
   const handleViewOrderDetails = (order: Order) => {
-    // Option 1: Navigate to a route that can display order details (e.g., use OrderConfirmationPage logic)
-    navigate('/confirmation', { state: { orderDetails: order } });
-    // Option 2: Show in a modal (setSelectedOrder(order)) - for this example, let's navigate
+    navigate('/confirmation', { state: { orderDetails: order, fromOrdersPage: true } });
   };
 
   if (isLoading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <LoadingSpinner />
+        <LoadingSpinner /> <p className="ml-2 text-textSecondary">A carregar pedidos...</p>
       </div>
     );
+  }
+
+  if (!user && !isLoading) { // If still not logged in after loading attempt
+    return (
+         <div className="text-center py-20 bg-surface rounded-lg shadow-md">
+            <h2 className="text-2xl font-semibold text-textPrimary mb-3">Acesso Restrito</h2>
+            <p className="text-textSecondary mb-6">Por favor, faça login para ver o seu histórico de pedidos.</p>
+            <ReactRouterDOM.Link to="/login" state={{ from: { pathname: '/orders' } }}>
+                <Button className="bg-primary hover:bg-secondary text-white">Login</Button>
+            </ReactRouterDOM.Link>
+        </div>
+    )
   }
 
   if (orders.length === 0) {
@@ -82,7 +165,7 @@ const OrdersPage: React.FC = () => {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-textSecondary">{new Date(order.orderDate).toLocaleDateString('pt-PT')}</div>
+                    <div className="text-sm text-textSecondary">{new Date(order.orderDate).toLocaleDateString('pt-PT', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-textSecondary">
@@ -110,7 +193,6 @@ const OrdersPage: React.FC = () => {
           </table>
         </div>
       </div>
-      {/* Modal for order details could be implemented here if not navigating */}
     </div>
   );
 };
