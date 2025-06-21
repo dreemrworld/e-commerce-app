@@ -1,12 +1,14 @@
 export interface Product {
-  id: string;
+  id: string; // Kept as string, Supabase UUIDs are typically strings
+  created_at?: string; // Added for Supabase timestamp
   name: string;
   description: string;
-  price: number; // AOA
-  imageUrls: string[]; // Changed from imageUrl: string
+  price: number;
+  image_url?: string; // Supabase column name (singular)
+  imageUrls?: string[]; // Potentially for frontend use if multiple images are handled client-side
   category: string;
-  stock: number;
-  reviews?: Review[]; // Added for product reviews
+  stock_quantity: number; // Supabase column name
+  reviews?: Review[];
 }
 
 export interface CartItem extends Product {

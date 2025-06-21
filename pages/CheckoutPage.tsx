@@ -1,17 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import * as ReactRouterDOM from 'react-router-dom';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext'; // Import useAuth
 import PaymentOptions from '../components/PaymentOptions';
-import { ShippingAddress, Order, CartItem } from '../types'; // Added Order, CartItem
-import { CURRENCY_SYMBOL, LOCAL_STORAGE_ORDERS_KEY } from '../constants'; // Added LOCAL_STORAGE_ORDERS_KEY
+import { ShippingAddress, Order, CartItem } from '../types';
+import { CURRENCY_SYMBOL } from '../constants';
 import Button from '../components/Button';
 import { useNotification } from '../context/NotificationContext';
-
+import { supabase } from '../lib/supabaseClient'; // Import Supabase client
+import LoadingSpinner from '../components/LoadingSpinner';
 
 const CheckoutPage: React.FC = () => {
-  const { cartItems, getTotalPrice, clearCart } = useCart();
+  const { cartItems, getTotalPrice, clearCart, isLoadingCart } = useCart();
+  const { user, session } = useAuth(); // Get user session
   const navigate = ReactRouterDOM.useNavigate();
   const { showNotification } = useNotification();
+
   const [shippingAddress, setShippingAddress] = useState<ShippingAddress>({
     fullName: '',
     address: '',
@@ -21,17 +25,25 @@ const CheckoutPage: React.FC = () => {
   });
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [formErrors, setFormErrors] = useState<Partial<ShippingAddress & {payment: string}>>({});
+  const [formErrors, setFormErrors] = useState<Partial<ShippingAddress & { payment: string }>>({});
+
+  // Redirect to login if user is not authenticated and tries to checkout
+  useEffect(() => {
+    if (!isLoadingCart && !session && cartItems.length > 0) {
+      showNotification('Por favor, faça login para continuar com a compra.', 'info');
+      navigate('/login', { state: { from: { pathname: '/checkout' } } });
+    }
+  }, [session, isLoadingCart, navigate, showNotification, cartItems.length]);
 
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setShippingAddress(prev => ({ ...prev, [name]: value }));
-     setFormErrors(prev => ({ ...prev, [name]: undefined }));
+    setFormErrors(prev => ({ ...prev, [name]: undefined }));
   };
 
   const validateForm = (): boolean => {
-    const errors: Partial<ShippingAddress & {payment: string}> = {};
+    const errors: Partial<ShippingAddress & { payment: string }> = {};
     if (!shippingAddress.fullName.trim()) errors.fullName = "Nome completo é obrigatório.";
     if (!shippingAddress.address.trim()) errors.address = "Endereço é obrigatório.";
     if (!shippingAddress.city.trim()) errors.city = "Cidade é obrigatória.";
@@ -40,53 +52,104 @@ const CheckoutPage: React.FC = () => {
     else if (!/^\d{9}$/.test(shippingAddress.phoneNumber.replace(/\s/g, ''))) errors.phoneNumber = "Número de telefone inválido (ex: 9xx xxx xxx).";
 
     if (!selectedPaymentMethod) errors.payment = "Por favor, selecione um método de pagamento.";
-    
+
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
-  };
-
-  const saveOrderToLocalStorage = (order: Order) => {
-    try {
-      const existingOrdersJSON = localStorage.getItem(LOCAL_STORAGE_ORDERS_KEY);
-      const existingOrders: Order[] = existingOrdersJSON ? JSON.parse(existingOrdersJSON) : [];
-      existingOrders.push(order);
-      localStorage.setItem(LOCAL_STORAGE_ORDERS_KEY, JSON.stringify(existingOrders));
-    } catch (error) {
-      console.error("Failed to save order to localStorage:", error);
-      showNotification("Não foi possível guardar o histórico do pedido localmente.", "error");
-    }
   };
 
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) return;
+    if (!user) {
+      showNotification('Sessão inválida. Por favor, faça login novamente.', 'error');
+      navigate('/login');
+      return;
+    }
 
     setIsProcessing(true);
-    
-    const newOrder: Order = {
-      id: self.crypto.randomUUID(),
-      items: [...cartItems] as CartItem[], // Ensure it's a new array of CartItem
-      totalAmount: getTotalPrice(),
-      shippingAddress: { ...shippingAddress },
-      paymentMethod: selectedPaymentMethod,
-      orderDate: new Date().toISOString(),
-      status: 'Pending', 
+
+    const orderDataForSupabase = {
+      user_id: user.id,
+      total_amount: getTotalPrice(),
+      shipping_address: shippingAddress, // JSONB
+      payment_method_id: selectedPaymentMethod, // Assuming this is a string ID or name
+      status: 'Pending', // Default status
+      payment_status: 'Pending', // Default payment status
+      // created_at will be set by Supabase default
     };
 
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    console.log('Order submitted:', newOrder);
-    saveOrderToLocalStorage(newOrder);
-    
-    clearCart(); // This already shows a notification
-    setIsProcessing(false);
-    navigate('/confirmation', { state: { orderDetails: newOrder } }); // Pass the full order object
+    try {
+      // 1. Insert into 'orders' table
+      const { data: orderResult, error: orderError } = await supabase
+        .from('orders')
+        .insert(orderDataForSupabase)
+        .select()
+        .single();
+
+      if (orderError || !orderResult) {
+        throw orderError || new Error('Failed to create order entry.');
+      }
+
+      const newOrderId = orderResult.id;
+
+      // 2. Prepare and insert into 'order_items' table
+      const orderItemsData = cartItems.map(item => ({
+        order_id: newOrderId,
+        product_id: item.id,
+        quantity: item.quantity,
+        price_at_purchase: item.price, // Capture price at the time of purchase
+      }));
+
+      const { error: itemsError } = await supabase
+        .from('order_items')
+        .insert(orderItemsData);
+
+      if (itemsError) {
+        // Potentially attempt to rollback order insertion or mark it as failed
+        console.error('Failed to insert order items, attempting to clean up order:', itemsError);
+        await supabase.from('orders').delete().match({ id: newOrderId }); // Simple cleanup
+        throw itemsError;
+      }
+
+      // Construct an Order object for confirmation page (consistent with local type)
+      const confirmedOrder: Order = {
+        id: newOrderId,
+        userId: user.id,
+        items: cartItems.map(ci => ({...ci})), // Deep copy cart items for the order state
+        totalAmount: orderResult.total_amount,
+        shippingAddress: orderResult.shipping_address,
+        paymentMethod: orderResult.payment_method_id,
+        orderDate: orderResult.created_at,
+        status: orderResult.status as Order['status'],
+      };
+
+      await clearCart(); // Clear cart from context (and Supabase via context)
+      showNotification('Encomenda submetida com sucesso!', 'success');
+      navigate('/confirmation', { state: { orderDetails: confirmedOrder } });
+
+    } catch (error: any) {
+      console.error('Order submission error:', error);
+      showNotification(error.message || 'Falha ao submeter a encomenda.', 'error');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
-  if (cartItems.length === 0 && !isProcessing) {
-     navigate('/cart'); 
-     return null;
+  // Redirect to cart if it's empty and not processing (and not loading initial cart)
+  useEffect(() => {
+    if (!isLoadingCart && cartItems.length === 0 && !isProcessing) {
+      navigate('/cart');
+    }
+  }, [cartItems, isLoadingCart, isProcessing, navigate]);
+
+
+  if (isLoadingCart || (!session && cartItems.length > 0)) { // Show loading if cart is loading OR if user not logged in but has items (while redirecting)
+    return (
+        <div className="flex justify-center items-center h-[calc(100vh-300px)]">
+            <LoadingSpinner />
+            <p className="ml-3 text-textSecondary">A preparar checkout...</p>
+        </div>
+    );
   }
   
   const totalPrice = getTotalPrice();
@@ -165,7 +228,7 @@ const CheckoutPage: React.FC = () => {
                 <PaymentOptions selectedPaymentMethod={selectedPaymentMethod} onSelectPaymentMethod={(id) => { setSelectedPaymentMethod(id); setFormErrors(prev => ({...prev, payment: undefined})); }} />
                 {formErrors.payment && <p className="text-red-500 text-xs mt-2">{formErrors.payment}</p>}
             </div>
-             <Button type="submit" size="lg" className="w-full bg-accent hover:bg-orange-600 text-white" isLoading={isProcessing} disabled={isProcessing}>
+             <Button type="submit" size="lg" className="w-full bg-accent hover:bg-orange-600 text-white" isLoading={isProcessing} disabled={isProcessing || !session}>
                 {isProcessing ? 'A Processar Encomenda...' : 'Confirmar Encomenda'}
             </Button>
         </div>

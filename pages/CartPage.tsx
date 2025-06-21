@@ -5,10 +5,20 @@ import { useCart } from '../context/CartContext';
 import CartItemCard from '../components/CartItemCard';
 import { CURRENCY_SYMBOL } from '../constants';
 import Button from '../components/Button';
+import LoadingSpinner from '../components/LoadingSpinner'; // Import LoadingSpinner
 
 const CartPage: React.FC = () => {
-  const { cartItems, getTotalPrice } = useCart();
+  const { cartItems, getTotalPrice, isLoadingCart } = useCart(); // Add isLoadingCart
   const navigate = ReactRouterDOM.useNavigate();
+
+  if (isLoadingCart) {
+    return (
+      <div className="flex justify-center items-center h-[calc(100vh-200px)]">
+        <LoadingSpinner />
+        <p className="ml-2 text-textSecondary">A carregar carrinho...</p>
+      </div>
+    );
+  }
 
   if (cartItems.length === 0) {
     return (

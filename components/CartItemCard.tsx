@@ -19,9 +19,9 @@ const CartItemCard: React.FC<CartItemCardProps> = ({ item }) => {
     }
   };
 
-  const imageUrl = item.imageUrls && item.imageUrls.length > 0
-    ? item.imageUrls[0]
-    : undefined; // Let it be undefined if no image
+  // Use item.image_url (from Supabase) first, then fallback to item.imageUrls[0] (local/mock)
+  const imageUrl = item.image_url || (item.imageUrls && item.imageUrls.length > 0 ? item.imageUrls[0] : undefined);
+
 
   return (
     <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-surface rounded-md shadow-sm mb-4">
